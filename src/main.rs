@@ -33,7 +33,7 @@ fn main() -> io::Result<()> {
     let mut bookmark_iter = bookmarks_file
         .lines()
         .enumerate()
-        .filter(|(_, line)| line.trim_start().starts_with('#'))
+        .filter(|(_, line)| !line.trim_start().starts_with('#'))
         .filter(|(_, line)| !line.is_empty())
         .map(|(nr, line)| (nr + 1, line))
         .map(|(nr, line)| {
