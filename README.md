@@ -6,33 +6,35 @@ A utility to manage web bookmarks from [Rofi].
 
 ## Usage
 
-Specify a path to a `bookmarks.toml` file in the `ROFI_BOOKMARKS_PATH` environment variable.
+Specify a path to a `book.marks` file in the `ROFI_BOOKMARKS_PATH` environment variable.
 
 ```bash
 cargo build --release
-ROFI_BOOKMARKS_PATH=$PWD/bookmarks.toml rofi -show bookmarks -modi bookmarks:$PWD/target/release/rofi-bookmarks
+ROFI_BOOKMARKS_PATH=$PWD/book.marks rofi -show bookmarks -modi bookmarks:$PWD/target/release/rofi-bookmarks
 ```
 
-The `bookmarks.toml` file consists of *items* and *groups*.
+The `book.marks` contains lines which each contain a bookmark.
 
 ```
-[example-item]
-# Optional: alternative display title instead of `example-item`
-title = "Example Item"
-# Manditory: URL the item points to
-url = "https://example.com"
-# Optional: set of keywords that can be searched for in Rofi
-keywords = [ "a", "list", "of", "words", "or sentences" ]
+# Lines that start with a '#' are ignored.
+#
+# Each bookmark needs at least a unique title and a URL separated by "::".
+# Optionally after the URL, additional search terms can be specified, delimited
+# by a comma.
+#
+# Some examples:
+Google                   :: https://google.com                 search
+DuckDuckGo               :: https://duckduckgo.com             search
 
-[example-group]
-# Optional: alternative display title instead of `example-group`
-title = "Example Group"
+GitHub                   :: https://github.com                 code
 
-"Google".url = "https://google.com"
-[bing]
-title = "Bing"
-url = "https://bing.com"
-keywords = [ "search", "microsoft" ]
+# Rust related stuff
+Rust Standard Library    :: https://doc.rust-lang.org/std/
+Rust Crate Documentation :: https://docs.rs/
+
+# Nix related stuff
+Nix Packages             :: https://search.nixos.org/packages
+NixOS Options            :: https://search.nixos.org/options 
 ```
 
 ## License

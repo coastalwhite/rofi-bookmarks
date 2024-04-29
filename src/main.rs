@@ -1,205 +1,83 @@
-use indexmap::IndexMap;
 use std::io;
+use std::process::exit;
 
-mod file {
-    use indexmap::IndexMap;
-    use serde::Deserialize;
-
-    #[derive(Deserialize, Debug)]
-    pub struct BookmarksFile(pub IndexMap<String, BookmarkItem>);
-
-    #[derive(Deserialize, Debug)]
-    #[serde(untagged)]
-    pub enum BookmarkItem {
-        Item(BookmarkMeta),
-        Group(BookmarkGroup),
-    }
-
-    #[derive(Deserialize, Debug)]
-    pub struct BookmarkGroup {
-        pub title: Option<String>,
-        #[serde(flatten)]
-        pub items: IndexMap<String, BookmarkItem>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    pub struct BookmarkMeta {
-        pub title: Option<String>,
-        pub url: String,
-        #[serde(default)]
-        pub keywords: Vec<String>,
-    }
+struct Bookmark<'a> {
+    title: &'a str,
+    url: &'a str,
+    extra: &'a str,
 }
 
-struct Bookmarks {
-    items: Vec<BookmarkGroupItem>,
-}
-
-struct BookmarkGroup {
-    title: String,
-    children: Vec<BookmarkGroupItem>,
-}
-
-enum BookmarkGroupItem {
-    Group(BookmarkGroup),
-    Item(BookmarkItem),
-}
-
-struct BookmarkItem {
-    title: String,
-    url: String,
-    keywords: Vec<String>,
-}
-
-impl From<file::BookmarksFile> for Bookmarks {
-    fn from(f: file::BookmarksFile) -> Bookmarks {
-        fn from_map(map: IndexMap<String, file::BookmarkItem>) -> Vec<BookmarkGroupItem> {
-            let mut children = Vec::with_capacity(map.len());
-
-            for (title, item) in map.into_iter() {
-                children.push(from_item(title, item));
-            }
-
-            children
+macro_rules! exit_error {
+    ($exit_code:literal, $fmt:literal$(, $arg:expr)* $(,)?) => {{
+        eprintln!($fmt$(, $arg)*);
+        if std::env::var("ROFI_RETV").is_ok() {
+            println!(concat!("\x00message\x1fError: ", $fmt)$(, $arg)*);
         }
-
-        fn from_item(item_title: String, item: file::BookmarkItem) -> BookmarkGroupItem {
-            match item {
-                file::BookmarkItem::Item(file::BookmarkMeta {
-                    title,
-                    url,
-                    keywords,
-                }) => {
-                    let title = title.unwrap_or(item_title);
-                    BookmarkGroupItem::Item(BookmarkItem {
-                        title,
-                        url,
-                        keywords,
-                    })
-                }
-                file::BookmarkItem::Group(file::BookmarkGroup { title, items }) => {
-                    let title = title.unwrap_or(item_title);
-                    let mut children = Vec::with_capacity(items.len());
-
-                    for (item_title, item) in items.into_iter() {
-                        children.push(from_item(item_title, item));
-                    }
-
-                    BookmarkGroupItem::Group(BookmarkGroup { title, children })
-                }
-            }
-        }
-
-        let items = from_map(f.0);
-        Bookmarks { items }
-    }
+        exit($exit_code)
+    }};
 }
 
-enum Title<'a> {
-    None,
-    Title(&'a str),
-}
-
-fn print_items(title: Title<'_>, items: &'_ [BookmarkGroupItem]) -> io::Result<()> {
-    use io::Write;
-
-    let mut stdout = io::stdout();
-
-    if let Title::Title(title) = title {
-        writeln!(stdout, "\x00message\x1f{title}")?;
-    }
-
-    for item in items {
-        match item {
-            BookmarkGroupItem::Item(BookmarkItem {
-                title,
-                url,
-                keywords,
-            }) => {
-                write!(stdout, "{title}\x00meta\x1f")?;
-                for keyword in keywords.iter() {
-                    write!(stdout, "{keyword},")?;
-                }
-                stdout.write(&[0x1f])?;
-            }
-            BookmarkGroupItem::Group(BookmarkGroup { title, children }) => {
-                write!(stdout, "{title}\x00icon\x1ffolder")?;
-            }
-        }
-
-        writeln!(stdout)?;
-    }
-
-    Ok(())
-}
-
-fn main() {
+fn main() -> io::Result<()> {
     let Ok(bookmarks_file_path) = std::env::var("ROFI_BOOKMARKS_PATH") else {
-        eprintln!("Environment variable 'ROFI_BOOKMARKS_PATH' not set.");
-        std::process::exit(1)
+        exit_error!(1, "Environment variable 'ROFI_BOOKMARKS_PATH' not set")
     };
 
     let Ok(bookmarks_file) = std::fs::read_to_string(&bookmarks_file_path) else {
-        eprintln!("Failed to read bookmarks file at {bookmarks_file_path}.");
-        std::process::exit(1)
+        exit_error!(1, "Failed to read bookmarks file at {}", bookmarks_file_path)
     };
-
-    let Ok(bookmarks) = toml::from_str::<file::BookmarksFile>(&bookmarks_file) else {
-        eprintln!("Failed to read bookmarks file at {bookmarks_file_path}.");
-        std::process::exit(1)
-    };
-
-    let bookmarks = Bookmarks::from(bookmarks);
 
     let mut args = std::env::args();
 
     args.next().expect("No argv[0]");
 
-    let Some(selector) = args.next() else {
-        print_items(Title::None, &bookmarks.items).expect("Failed to write");
-        std::process::exit(0)
-    };
+    let mut bookmark_iter = bookmarks_file
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.trim_start().starts_with('#'))
+        .filter(|(_, line)| !line.is_empty())
+        .map(|(nr, line)| (nr + 1, line))
+        .map(|(nr, line)| {
+            let Some((title, line)) = line.split_once("::") else {
+                exit_error!(1, "Missing '::' on line #{} in {}", nr, bookmarks_file_path)
+            };
 
-    let mut iterator_stack = Vec::with_capacity(8);
+            let (url, extra) = line
+                .trim_start()
+                .split_once(char::is_whitespace)
+                .unwrap_or((line, ""));
 
-    iterator_stack.push(bookmarks.items.iter());
+            if url.is_empty() {
+                exit_error!(1, "Missing URL on line #{} in {}", nr, bookmarks_file_path)
+            };
 
-    loop {
-        let Some(iterator) = iterator_stack.last_mut() else {
-            eprintln!("Selector '{selector}' not found!");
-            std::process::exit(1)
-        };
+            let title = title.trim();
+            let url = url.trim_end();
+            let extra = extra.trim();
 
-        let Some(item) = iterator.next() else {
-            iterator_stack.pop();
-            continue;
-        };
+            Bookmark { title, url, extra }
+        });
 
-        use BookmarkGroupItem as I;
-        match item {
-            I::Item(BookmarkItem {
-                title,
-                url,
-                keywords,
-            }) => {
-                if title != &selector {
-                    continue;
-                }
+    match args.next() {
+        None => {
+            use io::Write;
+            let mut stdout = io::stdout();
 
-                if let Err(err) = open::that(url) {
-                    eprintln!("Failed to open url. Reason: {err}");
-                }
-            }
-            I::Group(BookmarkGroup { title, children }) => {
-                if title != &selector {
-                    iterator_stack.push(children.iter());
-                    continue;
-                }
-
-                print_items(Title::Title(&title), &children).expect("Failed to write");
+            for Bookmark { title, url, extra } in bookmark_iter {
+                writeln!(stdout, "{title}\x00meta\x1f{url},{extra}\x1f")?;
             }
         }
+        Some(selector) => {
+            let Some(Bookmark { url, .. }) =
+                bookmark_iter.find(|bookmark| &bookmark.title == &selector)
+            else {
+                exit_error!(1, "Failed to find '{}' in bookmarks", selector)
+            };
 
-        break;
+            if let Err(err) = open::that_detached(&url[..]) {
+                exit_error!(1, "Failed to open URL '{}'. Reason: {}", url, err)
+            }
+        }
     }
+
+    Ok(())
 }

@@ -1,0 +1,14 @@
+# Search Engines
+Google                   :: https://google.com                 search
+DuckDuckGo               :: https://duckduckgo.com             search
+
+# Common Links
+GitHub                   :: https://github.com                 code
+
+# Rust related
+Rust Standard Library    :: https://doc.rust-lang.org/std/
+Rust Crate Documentation :: https://docs.rs/
+
+# Nix related
+Nix Packages             :: https://search.nixos.org/packages
+NixOS Options            :: https://search.nixos.org/options 
